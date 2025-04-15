@@ -3,5 +3,9 @@
   "version": "1.0.0",
   "scripts": {
     "heroku-postbuild": "cd frontend && npm install && npm run build && cp -r dist ../backend/static"
+  },
+  "engines": {
+  "node": "20.x"
   }
+
 }
