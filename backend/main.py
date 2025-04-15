@@ -1,19 +1,30 @@
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from fastapi.middleware.cors import CORSMiddleware
 import os
 
 app = FastAPI()
 
-# Serve the built Vite frontend
-app.mount("/", StaticFiles(directory="../frontend/dist", html=True), name="frontend")
+# CORS (for local frontend dev, not needed in production if hosted together)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # You can restrict this later
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
+# Sample API route
+@app.get("/api/ping")
+async def ping():
+    return {"message": "pong"}
 
-@app.get("/api/hello")
-def hello():
-    return {"message": "Hello from FastAPI!"}
+# Serve React static files from /frontend/dist
+frontend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../frontend/dist"))
+app.mount("/", StaticFiles(directory=frontend_path, html=True), name="frontend")
 
-
+# Catch-all for React SPA routing
 @app.get("/{full_path:path}")
 async def catch_all(full_path: str):
-    return FileResponse("../frontend/dist/index.html")
+    return FileResponse(os.path.join(frontend_path, "index.html"))
