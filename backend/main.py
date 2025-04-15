@@ -22,9 +22,9 @@ async def ping():
 
 # Serve React static files from /frontend/dist
 frontend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../frontend/dist"))
-app.mount("/", StaticFiles(directory=frontend_path, html=True), name="frontend")
+app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
 # Catch-all for React SPA routing
 @app.get("/{full_path:path}")
 async def catch_all(full_path: str):
-    return FileResponse(os.path.join(frontend_path, "index.html"))
+    return FileResponse("static/index.html")
