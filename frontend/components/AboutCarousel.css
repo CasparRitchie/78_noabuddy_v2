@@ -1,0 +1,52 @@
+.carousel-container {
+  width: 100%;
+  max-width: 600px;
+  margin: 0 auto;
+  overflow: hidden;
+  position: relative;
+  background-color: white;
+  border-radius: 16px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+}
+
+.carousel-slide {
+  display: flex;
+  transition: transform 0.5s ease-in-out;
+}
+
+.carousel-item {
+  min-width: 100%;
+  padding: 40px 24px;
+  box-sizing: border-box;
+  text-align: center;
+}
+
+.carousel-item h2 {
+  font-size: 24px;
+  margin-bottom: 16px;
+}
+
+.carousel-item p {
+  font-size: 16px;
+  color: #555;
+}
+
+.carousel-controls {
+  display: flex;
+  justify-content: center;
+  margin-top: 16px;
+  gap: 12px;
+}
+
+.carousel-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background-color: #ccc;
+  cursor: pointer;
+  transition: background-color 0.3s;
+}
+
+.carousel-dot.active {
+  background-color: #4CAF50; /* Bright green like your branding */
+}
