@@ -38,15 +38,21 @@
   gap: 12px;
 }
 
+.carousel-nav {
+  display: flex;
+  justify-content: center;
+  margin-top: 1rem;
+}
+
 .carousel-dot {
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
-  background-color: #ccc;
+  margin: 0 6px;
+  background-color: aquamarine;
   cursor: pointer;
-  transition: background-color 0.3s;
 }
 
 .carousel-dot.active {
-  background-color: #4CAF50; /* Bright green like your branding */
+  background-color: #fff; /* solid white when active */
 }

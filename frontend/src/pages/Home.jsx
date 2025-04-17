@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import logo from '../assets/noabuddy_logo.png';
 import Navbar from '../../components/Navbar';
 import OnboardingCarousel from '../../components/OnboardingCarousel';
+import "./Home.css"
 
 function Home() {
   const [showOnboarding, setShowOnboarding] = useState(false);

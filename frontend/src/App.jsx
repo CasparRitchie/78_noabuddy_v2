@@ -18,7 +18,7 @@ function App() {
     if (!text.trim()) return;
 
     const newUserMessage = { sender: "user", text };
-    const newBotMessage = { sender: "bot", text: "That's interesting!" };
+    const newBotMessage = { sender: "bot", text: "Liv smells ok I suppose" };
 
     setMessages((prev) => [...prev, newUserMessage, newBotMessage]);
   };

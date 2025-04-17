@@ -33,8 +33,8 @@ const AboutCarousel = () => {
         <p>{slides[index].text}</p>
       </div>
       <div className="carousel-controls">
-        <button onClick={prev}>←</button>
-        <button onClick={next}>→</button>
+        <button className="carousel-dot" onClick={prev}>←</button>
+        <button className="carousel-dot" onClick={next}>→</button>
       </div>
     </div>
   );
