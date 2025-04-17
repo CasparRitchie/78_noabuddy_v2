@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import "./Onboarding.css";
+import "./OnboardingCarousel.css";
 
 const slides = [
   {
@@ -36,7 +36,7 @@ const OnboardingCarousel = ({ onFinish }) => {
   };
 
   return (
-    <div className="onboarding-container">
+    <div className="onboarding-carousel-container">
       <div className="onboarding-slide">
         <h2>{slides[currentSlide].title}</h2>
         <p>{slides[currentSlide].text}</p>

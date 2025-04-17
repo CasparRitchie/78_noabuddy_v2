@@ -4,19 +4,19 @@ import './AboutCarousel.css';
 const slides = [
   {
     title: 'Empathy',
-    text: 'Noa listens with compassion and aims to understand both sides of the conversation.',
+    text: 'Noa listens with compassion. It’s not about who’s right or wrong—it’s about understanding.',
   },
   {
     title: 'Non-judgment',
-    text: 'Noa provides a safe space free of blame or criticism.',
+    text: 'Noa offers a safe space where you can share without fear of blame or criticism.',
   },
   {
     title: 'Encouragement',
-    text: 'Noa helps you both reflect and grow, gently encouraging communication.',
+    text: 'Noa nudges you gently toward understanding each other better, without pressure.',
   },
   {
     title: 'Balance',
-    text: 'Noa keeps things fair and focused on connection rather than conflict.',
+    text: 'Noa stays neutral. Its aim is to support both of you equally and fairly.',
   },
 ];
 
@@ -27,14 +27,23 @@ const AboutCarousel = () => {
   const next = () => setIndex((i) => (i + 1) % slides.length);
 
   return (
-    <div className="carousel-container">
-      <div className="carousel-card">
-        <h3>{slides[index].title}</h3>
+    <div className="about-carousel-container">
+      <div className="about-card">
+        <h2>{slides[index].title}</h2>
         <p>{slides[index].text}</p>
+        <div className="carousel-nav">
+          {slides.map((_, idx) => (
+            <div
+              key={idx}
+              className={`carousel-dot ${index === idx ? "active" : ""}`}
+              onClick={() => setIndex(idx)}
+            />
+          ))}
+        </div>
       </div>
-      <div className="carousel-controls">
-        <button className="carousel-dot" onClick={prev}>←</button>
-        <button className="carousel-dot" onClick={next}>→</button>
+      <div className="about-carousel-controls">
+        <button onClick={prev}>←</button>
+        <button onClick={next}>→</button>
       </div>
     </div>
   );

@@ -1,58 +1,52 @@
-.carousel-container {
-  width: 100%;
-  max-width: 600px;
-  margin: 0 auto;
-  overflow: hidden;
-  position: relative;
-  background-color: white;
-  border-radius: 16px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
-}
-
-.carousel-slide {
+.about-carousel-container {
   display: flex;
-  transition: transform 0.5s ease-in-out;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 80vh;
+  padding: 2rem;
+  background-color: #f6f9fc;
 }
 
-.carousel-item {
-  min-width: 100%;
-  padding: 40px 24px;
-  box-sizing: border-box;
+.about-card {
+  background-color: white;
+  padding: 2.5rem;
+  border-radius: 16px;
+  max-width: 500px;
   text-align: center;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
 }
 
-.carousel-item h2 {
-  font-size: 24px;
-  margin-bottom: 16px;
+.about-card h2 {
+  font-size: 1.8rem;
+  font-weight: 600;
+  margin-bottom: 1rem;
+  color: #222;
 }
 
-.carousel-item p {
-  font-size: 16px;
+.about-card p {
+  font-size: 1.1rem;
+  line-height: 1.6;
   color: #555;
 }
 
-.carousel-controls {
+.about-carousel-controls {
+  margin-top: 2rem;
   display: flex;
-  justify-content: center;
-  margin-top: 16px;
-  gap: 12px;
+  gap: 1rem;
 }
 
-.carousel-nav {
-  display: flex;
-  justify-content: center;
-  margin-top: 1rem;
-}
-
-.carousel-dot {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  margin: 0 6px;
-  background-color: aquamarine;
+.about-carousel-controls button {
+  background-color: #5e60ce;
+  color: white;
+  border: none;
+  padding: 0.6rem 1.2rem;
+  border-radius: 8px;
+  font-size: 1rem;
   cursor: pointer;
+  transition: background 0.3s;
 }
 
-.carousel-dot.active {
-  background-color: #fff; /* solid white when active */
+.about-carousel-controls button:hover {
+  background-color: #4346b2;
 }
