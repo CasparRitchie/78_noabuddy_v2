@@ -37,6 +37,8 @@ const OnboardingCarousel = ({ onFinish }) => {
 
   return (
     <div className="onboarding-carousel-container">
+      <Navbar />
+      <div style={{ paddingTop: "70px" }}>
       <div className="onboarding-slide">
         <h2>{slides[currentSlide].title}</h2>
         <p>{slides[currentSlide].text}</p>
@@ -63,6 +65,7 @@ const OnboardingCarousel = ({ onFinish }) => {
           </button>
         </div>
       </div>
+    </div>
     </div>
   );
 };

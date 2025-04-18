@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import './About.css';
+import Navbar from '../../components/Navbar';
+import PageLayout from '../../components/PageLayout';
 
 const slides = [
   {
@@ -42,38 +44,39 @@ const About = () => {
   const prev = () => setIndex((i) => (i === 0 ? slides.length - 1 : i - 1));
 
   return (
-    <div className="about-carousel-container">
-      <div className="about-content-wrapper">
-        <div className="about-slide" style={{ backgroundColor: slides[index].bgColor }}>
-          <h2>{slides[index].title}</h2>
-          <p>{slides[index].text}</p>
+    <PageLayout>
+      <div className="about-carousel-container">
+        <Navbar/>
+        <div className="about-content-wrapper">
+          <div className="about-slide" style={{ backgroundColor: slides[index].bgColor }}>
+            <h2>{slides[index].title}</h2>
+            <p>{slides[index].text}</p>
 
-          <div className="dot-navigation">
-            {slides.map((_, i) => (
-              <span
-                key={i}
-                className={`dot ${index === i ? 'active' : ''}`}
-                onClick={() => setIndex(i)}
-              />
-            ))}
+            <div className="dot-navigation">
+              {slides.map((_, i) => (
+                <span
+                  key={i}
+                  className={`dot ${index === i ? 'active' : ''}`}
+                  onClick={() => setIndex(i)}
+                />
+              ))}
+            </div>
+
+            <div className="about-carousel-controls">
+              <button onClick={prev}>←</button>
+              <button onClick={next}>→</button>
+            </div>
           </div>
-
-          <div className="about-carousel-controls">
-            <button onClick={prev}>←</button>
-            <button onClick={next}>→</button>
+          <div className="about-footer-links">
+            <Link to="/signin">Back to Sign in</Link>
+            <Link to="/science">The Science behind NoaBuddy™</Link>
+            <p className="about-legal">
+              Please read our <Link to="/terms">Terms of Service</Link> and <Link to="/privacy">Privacy Policy</Link>
+            </p>
           </div>
-        </div>
-
-        {/* Footer links BELOW the slide */}
-        <div className="about-footer-links">
-          <Link to="/signin">Back to Sign in</Link>
-          <Link to="/science">The Science behind NoaBuddy™</Link>
-          <p className="about-legal">
-            Please read our <Link to="/terms">Terms of Service</Link> and <Link to="/privacy">Privacy Policy</Link>
-          </p>
         </div>
       </div>
-    </div>
+    </PageLayout>
   );
 };
 

@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import './AboutCarousel.css';
+import PageLayout from '../../components/PageLayout';
+
 
 const slides = [
   {
@@ -27,25 +29,27 @@ const AboutCarousel = () => {
   const next = () => setIndex((i) => (i + 1) % slides.length);
 
   return (
-    <div className="about-carousel-container">
-      <div className="about-card">
-        <h2>{slides[index].title}</h2>
-        <p>{slides[index].text}</p>
-        <div className="carousel-nav">
-          {slides.map((_, idx) => (
-            <div
-              key={idx}
-              className={`carousel-dot ${index === idx ? "active" : ""}`}
-              onClick={() => setIndex(idx)}
-            />
-          ))}
+    <PageLayout>
+      <div className="about-carousel-container">
+        <div className="about-card">
+          <h2>{slides[index].title}</h2>
+          <p>{slides[index].text}</p>
+          <div className="carousel-nav">
+            {slides.map((_, idx) => (
+              <div
+                key={idx}
+                className={`carousel-dot ${index === idx ? "active" : ""}`}
+                onClick={() => setIndex(idx)}
+              />
+            ))}
+          </div>
+        </div>
+        <div className="about-carousel-controls">
+          <button onClick={prev}>←</button>
+          <button onClick={next}>→</button>
         </div>
       </div>
-      <div className="about-carousel-controls">
-        <button onClick={prev}>←</button>
-        <button onClick={next}>→</button>
-      </div>
-    </div>
+    </PageLayout>
   );
 };
 
