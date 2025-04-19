@@ -1,0 +1,127 @@
+/* PaymentPage.css */
+
+.payment-page {
+  padding: 2rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-family: "Helvetica Neue", sans-serif;
+  background-color: #f9fafb;
+  min-height: 100vh;
+}
+
+.payment-container {
+  background: white;
+  padding: 2rem;
+  border-radius: 16px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+  max-width: 600px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.payment-method-box {
+  text-align: center;
+}
+
+.payment-method-box span {
+  font-weight: 600;
+  font-size: 1.1rem;
+  display: block;
+  margin-bottom: 0.5rem;
+}
+
+.payment-icons {
+  display: flex;
+  justify-content: center;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.payment-icons img {
+  height: 32px;
+  object-fit: contain;
+}
+
+.payment-buttons {
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+}
+
+.payment-buttons .primary,
+.payment-buttons .secondary {
+  flex: 1;
+  padding: 0.75rem;
+  font-size: 1rem;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.payment-buttons .primary {
+  background-color: #5e60ce;
+  color: white;
+}
+
+.payment-buttons .secondary {
+  background-color: #e2e8f0;
+  color: #333;
+}
+
+h2 {
+  font-size: 1.25rem;
+  margin-top: 1.5rem;
+}
+
+input,
+select {
+  width: 100%;
+  padding: 0.75rem;
+  border-radius: 8px;
+  border: 1px solid #ccc;
+  font-size: 1rem;
+  margin-top: 0.25rem;
+}
+
+.expiry-cvc-row {
+  display: flex;
+  gap: 1rem;
+}
+
+.expiry-cvc-row select {
+  flex: 1;
+}
+
+.continue-button {
+  background-color: #48bb78;
+  color: white;
+  padding: 1rem;
+  font-size: 1.1rem;
+  border: none;
+  border-radius: 10px;
+  margin-top: 1.5rem;
+  cursor: pointer;
+}
+
+.continue-button:hover {
+  background-color: #38a169;
+}
+
+/* Responsive tweaks */
+@media (max-width: 500px) {
+  .payment-container {
+    padding: 1rem;
+    border-radius: 12px;
+  }
+
+  .payment-buttons {
+    flex-direction: column;
+  }
+
+  .payment-icons {
+    justify-content: space-between;
+  }
+}

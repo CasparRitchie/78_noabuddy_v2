@@ -10,6 +10,7 @@ import PrivacyPolicy from './pages/PrivacyPolicy';
 import SciencePage from './pages/SciencePage';
 import SignIn from './pages/SignIn';
 import PaymentPage from './pages/PaymentPage.jsx';
+import AboutPayment from './pages/AboutPayment.jsx'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
@@ -23,6 +24,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
         <Route path="/science" element={<SciencePage />} />
         <Route path="/signin" element={<SignIn />} />
         <Route path="/payment" element={<PaymentPage />} />
+        <Route path="/aboutpayment" element={<AboutPayment />} />
       </Routes>
     </Router>
   </React.StrictMode>,
