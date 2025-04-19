@@ -1,5 +1,7 @@
 import React, { useState } from "react";
 import "./OnboardingCarousel.css";
+import Navbar from '../components/Navbar';
+
 
 const slides = [
   {

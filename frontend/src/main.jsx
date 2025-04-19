@@ -9,6 +9,7 @@ import TermsOfService from './pages/TermsOfService';
 import PrivacyPolicy from './pages/PrivacyPolicy';
 import SciencePage from './pages/SciencePage';
 import SignIn from './pages/SignIn';
+import PaymentPage from './pages/PaymentPage.jsx';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
@@ -21,6 +22,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
         <Route path="/privacy" element={<PrivacyPolicy />} />
         <Route path="/science" element={<SciencePage />} />
         <Route path="/signin" element={<SignIn />} />
+        <Route path="/payment" element={<PaymentPage />} />
       </Routes>
     </Router>
   </React.StrictMode>,
