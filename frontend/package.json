@@ -15,7 +15,6 @@
     "framer-motion": "^12.7.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "react-pay-icons": "^1.0.8",
     "react-router-dom": "^7.5.0",
     "vite-plugin-pwa": "^1.0.0"
   },
