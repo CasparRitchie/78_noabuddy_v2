@@ -1,3 +1,12 @@
+.app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  max-width: 90vw;
+  overflow-x: hidden;
+}
+
+
 .about-carousel-container {
   display: flex;
   justify-content: center;

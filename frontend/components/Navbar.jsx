@@ -11,9 +11,13 @@ const Navbar = () => {
     <nav className="navbar">
       <div className="navbar-brand">
         <Link to="/" className="logo">NoaBuddy</Link>
-        <button className="burger" onClick={toggleMenu}>
+        <button className="burger" onClick={() => {
+          console.log('Burger clicked');
+          toggleMenu();
+        }}>
           ☰
         </button>
+
       </div>
       <ul className={`nav-links ${menuOpen ? "active" : ""}`}>
         <li><Link to="/about">About</Link></li>
