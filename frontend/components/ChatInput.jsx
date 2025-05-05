@@ -1,46 +1,39 @@
-// frontend/src/components/ChatInput.jsx
-import React, { useState, useEffect } from 'react';
+// ChatInput.jsx
+import React, { useState, useRef } from 'react';
 import Waveform from './Waveform';
 import './ChatInput.css';
 
 export default function ChatInput({ onSend }) {
   const [input, setInput] = useState('');
-  const [analysers, setAnalysers] = useState({
-    analyserA: null,
-    analyserB: null,
-    analyserBot: null,
-  });
+  const [analysers, setAnalysers] = useState({});
+  const audioCtxRef = useRef();
 
-  useEffect(() => {
-    // create a single AudioContext
-    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const startListening = async () => {
+    try {
+      // create AudioContext once
+      if (!audioCtxRef.current) {
+        audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const source = audioCtxRef.current.createMediaStreamSource(stream);
 
-    navigator.mediaDevices
-      .getUserMedia({ audio: true })
-      .then((stream) => {
-        const source = audioCtx.createMediaStreamSource(stream);
+      const makeAnalyser = () => {
+        const a = audioCtxRef.current.createAnalyser();
+        a.fftSize = 32;
+        source.connect(a);
+        return a;
+      };
 
-        // Person A
-        const analyserA = audioCtx.createAnalyser();
-        analyserA.fftSize = 32;
-        source.connect(analyserA);
-
-        // Person B (if you had separate stream, you'd repeat; for demo we'll just clone A)
-        const analyserB = audioCtx.createAnalyser();
-        analyserB.fftSize = 32;
-        source.connect(analyserB);
-
-        // Bot (placeholder silent analyser)
-        const analyserBot = audioCtx.createAnalyser();
-        analyserBot.fftSize = 32;
-        // we won't feed the bot analyser for now
-
-        setAnalysers({ analyserA, analyserB, analyserBot });
-      })
-      .catch((err) => {
-        console.error('Microphone access denied', err);
+      setAnalysers({
+        analyserA: makeAnalyser(),
+        analyserB: makeAnalyser(),
+        analyserBot: audioCtxRef.current.createAnalyser(), // silent placeholder
       });
-  }, []);
+    } catch (err) {
+      console.error('Could not get microphone:', err);
+      alert('Microphone permission is required to see the waveforms.');
+    }
+  };
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -52,9 +45,16 @@ export default function ChatInput({ onSend }) {
   return (
     <div className="chat-input-wrapper">
       <div className="waveform-container">
-        <Waveform analyser={analysers.analyserA} color="#5e60ce" />
-        <Waveform analyser={analysers.analyserB} color="#9b5de5" />
-        <Waveform analyser={analysers.analyserBot} color="#48bb78" />
+        {analysers.analyserA
+          ? <>
+              <Waveform analyser={analysers.analyserA} color="#5e60ce" />
+              <Waveform analyser={analysers.analyserB} color="#9b5de5" />
+              <Waveform analyser={analysers.analyserBot} color="#48bb78" />
+            </>
+          : <button className="mic-button" onClick={startListening}>
+              🎤 Start Listening
+            </button>
+        }
       </div>
 
       <form className="chat-input" onSubmit={handleSubmit}>

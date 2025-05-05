@@ -75,3 +75,14 @@
   border: none;
   border-radius: 20px;
 }
+
+/* ChatInput.css */
+.mic-button {
+  padding: 0.8rem 1.2rem;
+  font-size: 1rem;
+  background: #5e60ce;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
