@@ -86,3 +86,14 @@
   border-radius: 8px;
   cursor: pointer;
 }
+
+/* ChatInput.css */
+.interim-line {
+  margin-top: 6px;
+  font-size: 0.9rem;
+  opacity: 0.75;
+}
+.mic-button.stop {
+  background: #b91c1c;
+  color: #fff;
+}

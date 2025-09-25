@@ -5,7 +5,9 @@
     "heroku-postbuild": "cd frontend && npm install && npm run build && cp -r dist ../backend/static"
   },
   "engines": {
-  "node": "20.x"
+    "node": "20.x"
+  },
+  "dependencies": {
+    "react-router-dom": "^7.6.3"
   }
-
 }

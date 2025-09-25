@@ -1,22 +1,41 @@
-# Start the Vite frontend dev server
-frontend:
-	cd frontend && npm run dev
+# ===== Deploy helpers =====
+FRONTEND := frontend
+BACKEND  := backend
+STATIC   := $(BACKEND)/static
 
-# Start the FastAPI backend server with autoreload
-backend:
-	cd backend && uvicorn main:app --reload
+BRANCH   ?= $(shell git rev-parse --abbrev-ref HEAD)
+COMMIT   ?= chore: deploy
 
-# Build the frontend with Vite
-build:
-	cd frontend && npm run build
+.PHONY: install-frontend build-frontend clean-static copy-frontend deploy push
 
-# Clean the frontend build output (optional)
-clean:
-	rm -rf frontend/dist
+install-frontend:
+	cd $(FRONTEND) && npm ci
 
-# Start both frontend and backend in separate Terminal tabs (macOS only)
-start-all:
-	@echo "Starting frontend and backend..."
-	osascript -e 'tell app "Terminal" to do script "cd \"$$PWD/frontend\" && npm run dev"'
-	osascript -e 'tell app "Terminal" to do script "cd \"$$PWD/backend\" && uvicorn main:app --reload"'
+# Build using a clean install to avoid local drift
+build-frontend: install-frontend
+	cd $(FRONTEND) && npm run build
 
+# Wipe ONLY the static folder (it should contain frontend assets only)
+clean-static:
+	@mkdir -p $(STATIC)
+	rm -rf $(STATIC)/*
+	@mkdir -p $(STATIC)
+
+# Copy dist -> backend/static
+copy-frontend:
+	@test -d $(FRONTEND)/dist || (echo "Run 'make build-frontend' first." && exit 1)
+	@mkdir -p $(STATIC)
+	cp -R $(FRONTEND)/dist/* $(STATIC)/
+	@echo "Copied frontend build into $(STATIC)"
+
+# One-liner: build + copy + push (Heroku GitHub auto-deploy will pick this up)
+deploy: build-frontend clean-static copy-frontend
+	@git add -A
+	@git commit -m "$(COMMIT)" || echo "Nothing to commit."
+	git push origin $(BRANCH)
+
+# Just commit & push current changes
+push:
+	@git add -A
+	@git commit -m "$(COMMIT)" || echo "Nothing to commit."
+	git push origin $(BRANCH)
