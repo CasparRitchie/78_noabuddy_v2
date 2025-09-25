@@ -12,7 +12,6 @@ import SignIn from './pages/SignIn';
 import PaymentPage from './pages/PaymentPage.jsx';
 import AboutPayment from './pages/AboutPayment.jsx'
 
-
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <Router>
