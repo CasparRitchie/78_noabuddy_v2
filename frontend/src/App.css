@@ -6,3 +6,8 @@
   width: 100%;
   overflow-x: hidden;
 }
+/* App.css (or a global css) */
+.message { padding: 8px 10px; border-radius: 10px; background: #121826; margin: 6px 0; }
+.message.speaker1 { border-left: 3px solid #5e60ce; }
+.message.speaker2 { border-left: 3px solid #9b5de5; }
+.message.bot      { border-left: 3px solid #48bb78; }

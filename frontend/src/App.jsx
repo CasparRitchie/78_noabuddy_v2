@@ -37,12 +37,23 @@ function App() {
     }
   };
 
-  const handleSend = (text) => {
-    if (!text.trim()) return;
+  // 🔧 CHANGED: accept structured messages { text, speaker } from ChatInput
+  const handleSend = (msg) => {
+    // Backward compatibility: if a string comes in, wrap it
+    const payload = typeof msg === "string" ? { text: msg, speaker: "s1" } : msg;
+
+    // Map speaker tag to a display role (for CSS / labels)
+    const role =
+      payload.speaker === "s1" ? "speaker1" :
+      payload.speaker === "s2" ? "speaker2" :
+      payload.speaker === "bot" ? "bot" : "unknown";
+
+    // Append the user/speaker message
     setMessages((prev) => [
       ...prev,
-      { sender: "user", text },
-      { sender: "bot", text: "🤖 (bot reply placeholder)" },
+      { role, text: payload.text }
+      // If you still want a bot placeholder, uncomment below:
+      // , { role: "bot", text: "🤖 (bot reply placeholder)" }
     ]);
   };
 
@@ -54,6 +65,12 @@ function App() {
   useEffect(() => () => {
     if (audioCtxRef.current) audioCtxRef.current.close();
   }, []);
+
+  // Helper to label bubbles nicely
+  const speakerLabel = (role) =>
+    role === "speaker1" ? "Speaker 1" :
+    role === "speaker2" ? "Speaker 2" :
+    role === "bot" ? "NoaBuddy" : "Unknown";
 
   if (showOnboarding) {
     return <Onboarding onFinish={handleFinishOnboarding} />;
@@ -68,13 +85,14 @@ function App() {
       </div>
 
       <div className="chat-window">
-        {messages.map((msg, i) => (
-          <div key={i} className={`message ${msg.sender}`}>
-            {msg.text}
+        {messages.map((m, i) => (
+          <div key={i} className={`message ${m.role}`}>
+            <strong>{speakerLabel(m.role)}:</strong> {m.text}
           </div>
         ))}
       </div>
 
+      {/* ChatInput now emits { text, speaker } for final chunks */}
       <ChatInput onSend={handleSend} audioStreams={audioStreams} />
     </div>
   );

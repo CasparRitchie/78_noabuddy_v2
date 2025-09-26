@@ -1,5 +1,5 @@
-// frontend/src/components/ChatInput.jsx
-import React, { useState, useRef, useEffect } from 'react';
+// frontend/components/ChatInput.jsx
+import React, { useState, useRef } from 'react';
 import Meyda from 'meyda';
 import { cosineSim, meanVectors } from '../src/utils/audioMath';
 import Waveform from './Waveform';
@@ -25,20 +25,8 @@ export default function ChatInput({ onSend }) {
   const micStreamRef = useRef(null);
   const meydaAnalyzerRef = useRef(null);
 
-  // TTS (bot) output node (optional hookup)
-  const botAudioCtxRef = useRef(null);
-  const botAnalyserRef = useRef(null);
-
-  const setupBotAnalyser = () => {
-    // If you already create an <audio> element for TTS playback, connect it here.
-    // For example, if you have an AudioContext for bot TTS:
-    if (!audioCtxRef.current) return;
-    if (!botAnalyserRef.current) {
-      botAnalyserRef.current = audioCtxRef.current.createAnalyser();
-      botAnalyserRef.current.fftSize = 32;
-    }
-    return botAnalyserRef.current;
-  };
+  // Remember the last non-null detected speaker to tag final chunks
+  const lastNonNullSpeakerRef = useRef(null);
 
   const startListening = async () => {
     try {
@@ -49,7 +37,7 @@ export default function ChatInput({ onSend }) {
       micStreamRef.current = stream;
       const source = audioCtxRef.current.createMediaStreamSource(stream);
 
-      // 1) Visual waveforms (you already do this)
+      // Waveforms
       const makeAnalyser = () => {
         const a = audioCtxRef.current.createAnalyser();
         a.fftSize = 256;
@@ -60,10 +48,9 @@ export default function ChatInput({ onSend }) {
       const analyserB = makeAnalyser();
       const analyserBot = audioCtxRef.current.createAnalyser();
       analyserBot.fftSize = 256;
-
       setAnalysers({ analyserA, analyserB, analyserBot });
 
-      // 2) Meyda MFCC stream
+      // Meyda MFCC stream
       if (meydaAnalyzerRef.current) {
         meydaAnalyzerRef.current.stop();
         meydaAnalyzerRef.current = null;
@@ -76,40 +63,36 @@ export default function ChatInput({ onSend }) {
         callback: ({ mfcc, rms }) => {
           if (!mfcc || !mfcc.length) return;
 
-          // Collect calibration frames
           if (calibMode === 's1') s1FramesRef.current.push(mfcc.slice());
           if (calibMode === 's2') s2FramesRef.current.push(mfcc.slice());
 
-          // Decide active speaker in real time (only if enrolled)
-          if (s1PrintRef.current || s2PrintRef.current) {
-            // Basic VAD by RMS to suppress silence/noise
-            if (rms < 0.01) {
-              setActiveSpeaker(null);
-              return;
-            }
-            let scores = [];
-            if (s1PrintRef.current) scores.push(['s1', cosineSim(mfcc, s1PrintRef.current)]);
-            if (s2PrintRef.current) scores.push(['s2', cosineSim(mfcc, s2PrintRef.current)]);
+          // simple VAD
+          if (rms < 0.01) {
+            setActiveSpeaker(null);
+            return;
+          }
+          // score vs enrolled voiceprints
+          const scores = [];
+          if (s1PrintRef.current) scores.push(['s1', cosineSim(mfcc, s1PrintRef.current)]);
+          if (s2PrintRef.current) scores.push(['s2', cosineSim(mfcc, s2PrintRef.current)]);
+          if (scores.length) {
             scores.sort((a, b) => b[1] - a[1]);
-            const [label, score] = scores[0];
-            // Margin to avoid rapid flicker
-            if (scores.length === 1 || (scores[0][1] - scores[1][1] > 0.05)) {
-              setActiveSpeaker(label);
-            } else {
-              setActiveSpeaker(null);
-            }
+            const [label, top] = scores[0];
+            const margin = scores.length > 1 ? top - scores[1][1] : 1;
+            setActiveSpeaker(margin > 0.05 ? label : null);
           }
         },
       });
       meydaAnalyzerRef.current.start();
 
-      // 3) Web Speech API (STT) – unchanged
+      // Web Speech API (STT)
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
       if (SpeechRecognition) {
         const rec = new SpeechRecognition();
         rec.lang = 'en-GB';
         rec.interimResults = true;
         rec.continuous = true;
+
         rec.onresult = (e) => {
           let finalText = '';
           let interimText = '';
@@ -118,15 +101,24 @@ export default function ChatInput({ onSend }) {
             if (e.results[i].isFinal) finalText += text + ' ';
             else interimText += text;
           }
+
+          // remember last non-null speaker so we can tag finalized chunks
+          if (activeSpeaker) lastNonNullSpeakerRef.current = activeSpeaker;
+
           if (finalText) {
-            setInput((prev) => (prev + (prev && !prev.endsWith(' ') ? ' ' : '') + finalText).trim() + ' ');
+            const speaker = lastNonNullSpeakerRef.current || 's1';
+            // Send a structured message upward instead of appending to input
+            onSend?.({ text: finalText.trim(), speaker });
+            setInput(''); // keep manual input clear (we're auto-sending)
           }
           setInterim(interimText);
         };
+
         rec.onend = () => {
           setListening(false);
           setInterim('');
         };
+
         rec.start();
         recognitionRef.current = rec;
       }
@@ -157,7 +149,6 @@ export default function ChatInput({ onSend }) {
     setActiveSpeaker(null);
   };
 
-  // Finish calibration for whichever speaker is active
   const finishCalibration = () => {
     if (calibMode === 's1' && s1FramesRef.current.length) {
       s1PrintRef.current = meanVectors(s1FramesRef.current);
@@ -170,16 +161,17 @@ export default function ChatInput({ onSend }) {
     setCalibMode(null);
   };
 
+  // Manual send (typed text) still works; default to Speaker 1
   const handleSubmit = (e) => {
     e.preventDefault();
     const text = input.trim();
     if (!text) return;
-    onSend(text);
+    const speaker = lastNonNullSpeakerRef.current || 's1';
+    onSend?.({ text, speaker });
     setInput('');
     setInterim('');
   };
 
-  // Highlight classes for each waveform based on activeSpeaker
   const wAClass = activeSpeaker === 's1' ? 'wave active' : 'wave';
   const wBClass = activeSpeaker === 's2' ? 'wave active' : 'wave';
   const wBotClass = activeSpeaker === 'bot' ? 'wave active' : 'wave';
@@ -204,13 +196,12 @@ export default function ChatInput({ onSend }) {
 
             <div className="controls">
               <button className="mic-button stop" onClick={stopListening}>⏹ Stop Listening</button>
-              {!calibMode && (
+              {!calibMode ? (
                 <>
                   <button onClick={() => setCalibMode('s1')}>Calibrate Speaker 1</button>
                   <button onClick={() => setCalibMode('s2')}>Calibrate Speaker 2</button>
                 </>
-              )}
-              {calibMode && (
+              ) : (
                 <button onClick={finishCalibration}>Finish {calibMode === 's1' ? 'Speaker 1' : 'Speaker 2'} Calibration</button>
               )}
             </div>
