@@ -11,7 +11,14 @@ export default function ChatInput({ onSend }) {
 
   const [analysers, setAnalysers] = useState({});
   const [listening, setListening] = useState(false);
-  const [activeSpeaker, setActiveSpeaker] = useState(null); // 's1' | 's2' | 'bot' | null
+
+  // ----- ACTIVE SPEAKER (state + ref to avoid stale closure) -----
+  const [_activeSpeaker, _setActiveSpeaker] = useState(null); // 's1' | 's2' | 'bot' | null
+  const activeSpeakerRef = useRef(null);
+  const setActiveSpeaker = (label) => {
+    activeSpeakerRef.current = label;
+    _setActiveSpeaker(label);
+  };
 
   // Calibration state
   const [calibMode, setCalibMode] = useState(null); // 's1' | 's2' | null
@@ -102,14 +109,15 @@ export default function ChatInput({ onSend }) {
             else interimText += text;
           }
 
-          // remember last non-null speaker so we can tag finalized chunks
-          if (activeSpeaker) lastNonNullSpeakerRef.current = activeSpeaker;
+          // Use the ref (fresh value), not state (which is stale inside this closure)
+          if (activeSpeakerRef.current) {
+            lastNonNullSpeakerRef.current = activeSpeakerRef.current;
+          }
 
           if (finalText) {
             const speaker = lastNonNullSpeakerRef.current || 's1';
-            // Send a structured message upward instead of appending to input
             onSend?.({ text: finalText.trim(), speaker });
-            setInput(''); // keep manual input clear (we're auto-sending)
+            setInput('');
           }
           setInterim(interimText);
         };
@@ -172,9 +180,9 @@ export default function ChatInput({ onSend }) {
     setInterim('');
   };
 
-  const wAClass = activeSpeaker === 's1' ? 'wave active' : 'wave';
-  const wBClass = activeSpeaker === 's2' ? 'wave active' : 'wave';
-  const wBotClass = activeSpeaker === 'bot' ? 'wave active' : 'wave';
+  const wAClass = _activeSpeaker === 's1' ? 'wave active' : 'wave';
+  const wBClass = _activeSpeaker === 's2' ? 'wave active' : 'wave';
+  const wBotClass = _activeSpeaker === 'bot' ? 'wave active' : 'wave';
 
   return (
     <div className="chat-input-wrapper">
