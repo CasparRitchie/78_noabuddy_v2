@@ -5,7 +5,16 @@ import { cosineSim, meanVectors } from '../src/utils/audioMath';
 import Waveform from './Waveform';
 import './ChatInput.css';
 
-/** Simple inline visualiser for a voiceprint (MFCC mean bars) */
+/* ===== Tunables ===== */
+const CALIB_SECONDS = 4_000;     // per-speaker calibration duration
+const VAD_MIN = 0.004;           // lower bound on VAD threshold
+const VAD_MULTIPLIER = 2.5;      // noiseFloor * multiplier
+const NOISE_DECAY = 0.98;        // noise floor EWMA decay
+const NOISE_ALPHA = 0.02;        // noise floor EWMA update
+const COSINE_MARGIN = 0.08;      // how much better top score must be than 2nd
+const SMOOTH_WINDOW = 8;         // frames for majority vote
+
+/** Inline visualiser for a voiceprint (MFCC mean bars) */
 function VoicePrintCard({ label, mfcc = [] }) {
   const W = 240, H = 120, PAD = 16;
   const n = mfcc.length || 0;
@@ -13,7 +22,7 @@ function VoicePrintCard({ label, mfcc = [] }) {
   const bars = mfcc.map(v => v / maxAbs); // normalize to [-1..1]
 
   return (
-    <div style={{ borderRadius: 12, padding: 12, background: 'rgba(255,255,255,0.04)' }}>
+    <div style={{ borderRadius: 12, padding: 12, background: 'rgba(255,255,255,0.05)', width: W + 24 }}>
       <div style={{ fontWeight: 600, marginBottom: 8 }}>{label}</div>
       <svg width={W} height={H} role="img" aria-label={`${label} voiceprint`}>
         <rect x="0" y="0" width={W} height={H} fill="transparent" />
@@ -28,8 +37,26 @@ function VoicePrintCard({ label, mfcc = [] }) {
         <line x1={PAD - 6} x2={W - PAD + 6} y1={H / 2} y2={H / 2} strokeOpacity="0.25" />
       </svg>
       <div style={{ opacity: 0.7, fontSize: 12, marginTop: 6 }}>
-        Bars show normalized MFCC mean values
+        Normalized MFCC mean bars
       </div>
+    </div>
+  );
+}
+
+/** Minimal debug overlay */
+function DebugHUD({ visible, rms, noise, s1, s2, candidate, active }) {
+  if (!visible) return null;
+  return (
+    <div style={{
+      position: 'absolute', right: 8, top: 8, padding: '8px 10px',
+      background: 'rgba(0,0,0,0.6)', borderRadius: 8, fontSize: 12, lineHeight: 1.3
+    }}>
+      <div><b>RMS:</b> {rms?.toFixed(4) ?? '-'}</div>
+      <div><b>Noise:</b> {noise?.toFixed(4) ?? '-'}</div>
+      <div><b>cos(S1):</b> {s1 !== null ? s1.toFixed(3) : '-'}</div>
+      <div><b>cos(S2):</b> {s2 !== null ? s2.toFixed(3) : '-'}</div>
+      <div><b>candidate:</b> {candidate ?? '-'}</div>
+      <div><b>active:</b> {active ?? '-'}</div>
     </div>
   );
 }
@@ -39,14 +66,14 @@ export default function ChatInput({ onSend }) {
   const [interim, setInterim] = useState('');
   const [analysers, setAnalysers] = useState({});
   const [listening, setListening] = useState(false);
+  const [showDebug, setShowDebug] = useState(false);
 
   // ---- Guided calibration phases ----
-  // idle → cal_s1_prompt → cal_s1_recording → cal_s1_review
-  // → cal_s2_prompt → cal_s2_recording → cal_s2_review → live
+  // idle → s1_prompt → s1_record → s1_review → s2_prompt → s2_record → s2_review → live
   const [phase, setPhase] = useState('idle');
-  const PROMPT_PHRASE = "Please say: 'The quick brown fox jumps over the lazy dog'";
+  const PROMPT_PHRASE = `Please say: “The quick brown fox jumps over the lazy dog.”`;
 
-  // Active speaker (UI) + stable tracking
+  // Active speaker (state + ref)
   const [_activeSpeaker, _setActiveSpeaker] = useState(null); // 's1' | 's2' | null
   const activeSpeakerRef = useRef(null);
   const lastNonNullSpeakerRef = useRef(null);
@@ -59,37 +86,38 @@ export default function ChatInput({ onSend }) {
   // Calibration storage
   const [s1Preview, setS1Preview] = useState(null); // { mfcc: [] }
   const [s2Preview, setS2Preview] = useState(null);
-  const s1FramesRef = useRef([]);
-  const s2FramesRef = useRef([]);
-  const s1PrintRef  = useRef(null); // Float32Array / number[]
+  const s1PrintRef  = useRef(null);
   const s2PrintRef  = useRef(null);
 
   // Audio + analyzers
-  const audioCtxRef = useRef();
-  const recognitionRef = useRef(null);
-  const micStreamRef = useRef(null);
+  const audioCtxRef      = useRef();
+  const recognitionRef   = useRef(null);
+  const micStreamRef     = useRef(null);
   const meydaAnalyzerRef = useRef(null);
 
   // Smoothing & adaptive VAD for live classification
   const speakerWindowRef = useRef([]);     // last N labels
   const noiseFloorRef    = useRef(0.0015); // adaptive baseline RMS
 
+  // Debug values
+  const debugRef = useRef({ rms: null, noise: null, s1: null, s2: null, candidate: null });
+
+  // ---- Helpers ----
   const speakInstruction = (text) => {
     try {
       const u = new SpeechSynthesisUtterance(text);
       u.rate = 1.0; u.pitch = 1.0; u.lang = 'en-GB';
       window.speechSynthesis.cancel();
       window.speechSynthesis.speak(u);
-    } catch { /* non-blocking */ }
+    } catch { /* ignore */ }
   };
 
-  // ----- Mic init (shared) -----
   const ensureAudio = async () => {
     if (!audioCtxRef.current) {
       audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
     }
     if (!micStreamRef.current) {
-      micStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
+      micStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
     }
     return {
       ctx: audioCtxRef.current,
@@ -97,48 +125,44 @@ export default function ChatInput({ onSend }) {
     };
   };
 
-  // ----- CALIBRATION RECORDING (generic helper) -----
+  // --- One-shot calibration recording (~4s, MFCC mean) ---
   const recordCalibration = async (who /* 's1' | 's2' */) => {
     const { ctx, source } = await ensureAudio();
-
-    // temp Meyda for calibration
     const frames = [];
+
     const calibAnalyzer = Meyda.createMeydaAnalyzer({
       audioContext: ctx,
       source,
       bufferSize: 1024,
       featureExtractors: ['mfcc', 'rms'],
       callback: ({ mfcc, rms }) => {
-        if (mfcc && mfcc.length && (rms ?? 0) > 0.001) {
-          frames.push(mfcc.slice());
-        }
+        if (mfcc && mfcc.length && (rms ?? 0) > 0.001) frames.push(mfcc.slice());
       },
     });
 
     calibAnalyzer.start();
-    // collect ~4 seconds
-    await new Promise(res => setTimeout(res, 4000));
+    await new Promise(res => setTimeout(res, CALIB_SECONDS));
     calibAnalyzer.stop();
 
     if (!frames.length) return null;
-
-    // voiceprint = mean MFCC vector
     const mfccMean = meanVectors(frames);
-    if (who === 's1') {
-      s1PrintRef.current = mfccMean;
-      setS1Preview({ mfcc: mfccMean });
-    } else {
-      s2PrintRef.current = mfccMean;
-      setS2Preview({ mfcc: mfccMean });
-    }
+    if (who === 's1') { s1PrintRef.current = mfccMean; setS1Preview({ mfcc: mfccMean }); }
+    else              { s2PrintRef.current = mfccMean; setS2Preview({ mfcc: mfccMean }); }
     return mfccMean;
   };
 
-  // ----- LIVE LISTENING (STT + live speaker ID) -----
+  // --- Validate prints (warn if too similar) ---
+  const printsLookTooSimilar = () => {
+    if (!s1PrintRef.current || !s2PrintRef.current) return false;
+    const sim = cosineSim(s1PrintRef.current, s2PrintRef.current);
+    return sim > 0.95; // very similar embeddings
+  };
+
+  // --- Live mode: visualisers + diarisation + STT ---
   const startLive = async () => {
     const { ctx, source } = await ensureAudio();
 
-    // Waveforms
+    // Visual waveforms
     const makeAnalyser = () => {
       const a = ctx.createAnalyser();
       a.fftSize = 256;
@@ -147,11 +171,11 @@ export default function ChatInput({ onSend }) {
     };
     const analyserA = makeAnalyser();
     const analyserB = makeAnalyser();
-    const analyserBot = ctx.createAnalyser();
+    const analyserBot = ctx.createAnalyser(); // placeholder for future TTS hookup
     analyserBot.fftSize = 256;
     setAnalysers({ analyserA, analyserB, analyserBot });
 
-    // Live Meyda for speaker identification
+    // Meyda for frame-by-frame speaker ID
     if (meydaAnalyzerRef.current) {
       meydaAnalyzerRef.current.stop();
       meydaAnalyzerRef.current = null;
@@ -166,37 +190,38 @@ export default function ChatInput({ onSend }) {
 
         // Adaptive VAD
         if (rms < noiseFloorRef.current * 1.5) {
-          noiseFloorRef.current = 0.98 * noiseFloorRef.current + 0.02 * rms;
+          noiseFloorRef.current = NOISE_DECAY * noiseFloorRef.current + NOISE_ALPHA * rms;
         }
-        const vadThreshold = Math.max(0.004, noiseFloorRef.current * 2.5);
-        if (rms < vadThreshold) {
-          setActiveSpeaker(null);
-          return;
+        const vadThreshold = Math.max(VAD_MIN, noiseFloorRef.current * VAD_MULTIPLIER);
+        if (rms < vadThreshold) { setActiveSpeaker(null); debugRef.current = { ...debugRef.current, rms, noise: noiseFloorRef.current, candidate: null }; return; }
+
+        // Score to prints
+        let s1 = null, s2 = null;
+        if (s1PrintRef.current) s1 = cosineSim(mfcc, s1PrintRef.current);
+        if (s2PrintRef.current) s2 = cosineSim(mfcc, s2PrintRef.current);
+        if (s1 === null && s2 === null) return;
+
+        let candidate = null;
+        if (s1 !== null && s2 !== null) {
+          const top = Math.max(s1, s2);
+          const second = Math.min(s1, s2);
+          candidate = (top - second) > COSINE_MARGIN ? (s1 > s2 ? 's1' : 's2') : null;
+        } else {
+          candidate = s1 !== null ? 's1' : 's2';
         }
 
-        // Scores (cosine) against both prints
-        const scores = [];
-        if (s1PrintRef.current) scores.push(['s1', cosineSim(mfcc, s1PrintRef.current)]);
-        if (s2PrintRef.current) scores.push(['s2', cosineSim(mfcc, s2PrintRef.current)]);
-        if (!scores.length) return;
-
-        scores.sort((a, b) => b[1] - a[1]);
-        const [label, top] = scores[0];
-        const margin = scores.length > 1 ? top - scores[1][1] : 1;
-        const candidate = margin > 0.06 ? label : null;
-
-        // Majority vote smoothing over last N frames
-        const N = 6;
+        // Majority-vote smoothing
         if (candidate) {
           speakerWindowRef.current.push(candidate);
-          if (speakerWindowRef.current.length > N) speakerWindowRef.current.shift();
+          if (speakerWindowRef.current.length > SMOOTH_WINDOW) speakerWindowRef.current.shift();
           const s1c = speakerWindowRef.current.filter(l => l === 's1').length;
           const s2c = speakerWindowRef.current.filter(l => l === 's2').length;
-          const stable = s1c === s2c ? null : (s1c > s2c ? 's1' : 's2');
-          setActiveSpeaker(stable);
+          setActiveSpeaker(s1c === s2c ? null : (s1c > s2c ? 's1' : 's2'));
         } else {
           setActiveSpeaker(null);
         }
+
+        debugRef.current = { rms, noise: noiseFloorRef.current, s1, s2, candidate };
       },
     });
     meydaAnalyzerRef.current.start();
@@ -224,26 +249,28 @@ export default function ChatInput({ onSend }) {
         setInterim(interimText);
       };
 
-      rec.onend = () => {
-        setListening(false);
-        setInterim('');
-      };
-
+      rec.onend = () => { setListening(false); setInterim(''); };
       rec.start();
       recognitionRef.current = rec;
+    } else {
+      console.warn('SpeechRecognition not supported in this browser.');
     }
 
     setListening(true);
     setPhase('live');
   };
 
-  // ----- Public buttons -----
-  const startListening = async () => {
-    // start a fresh mic session and begin guided calibration
+  // ---- Public controls ----
+  const startListeningFlow = async () => {
     try {
       await ensureAudio();
-      setPhase('cal_s1_prompt');
-      speakInstruction("Let's calibrate. Speaker one, when ready, please read the phrase shown on screen.");
+      // Reset session
+      s1PrintRef.current = null; s2PrintRef.current = null;
+      setS1Preview(null); setS2Preview(null);
+      speakerWindowRef.current = [];
+      setActiveSpeaker(null);
+      setPhase('s1_prompt');
+      speakInstruction("Let's calibrate. Speaker one, when ready, please read the phrase on screen.");
     } catch (err) {
       console.error('Microphone error:', err);
       alert('Microphone permission is required.');
@@ -262,6 +289,7 @@ export default function ChatInput({ onSend }) {
     setPhase('idle');
   };
 
+  // Manual typed send (default to last detected, else S1)
   const handleSubmit = (e) => {
     e.preventDefault();
     const text = input.trim();
@@ -272,91 +300,139 @@ export default function ChatInput({ onSend }) {
     setInterim('');
   };
 
-  // ---- Phase UI helpers ----
-  const PhaseCalibrationS1 = () => (
-    <div className="cal-block">
+  // ---- Phase UIs ----
+  const CalibrationS1 = () => (
+    <div className="cal-panel">
       <h3>Calibration — Speaker 1</h3>
-      <p>{PROMPT_PHRASE}</p>
+      <p style={{ opacity: 0.85 }}>{PROMPT_PHRASE}</p>
       <div className="controls">
         <button onClick={async () => {
-          setPhase('cal_s1_recording');
+          setPhase('s1_record');
           speakInstruction("Recording speaker one for four seconds. Please read the phrase now.");
           await recordCalibration('s1');
-          setPhase('cal_s1_review');
+          setPhase('s1_review');
+          speakInstruction("Speaker one calibration complete.");
         }}>Start Speaker 1 Recording</button>
       </div>
-      {phase === 'cal_s1_review' && s1Preview && (
+
+      {phase === 's1_review' && s1Preview && (
         <>
-          <VoicePrintCard label="Speaker 1 voiceprint" mfcc={s1Preview.mfcc} />
+          <div style={{ marginTop: 10 }}>
+            <VoicePrintCard label="Speaker 1 voiceprint" mfcc={s1Preview.mfcc} />
+          </div>
           <div className="controls" style={{ marginTop: 10 }}>
-            <button onClick={() => setPhase('cal_s2_prompt')}>Looks good → Next (Speaker 2)</button>
+            <button onClick={() => {
+              setPhase('s2_prompt');
+              speakInstruction("Now speaker two, please read the phrase on screen.");
+            }}>Looks good → Next (Speaker 2)</button>
             <button onClick={async () => {
-              setPhase('cal_s1_recording');
+              setPhase('s1_record');
+              speakInstruction("Re-recording speaker one.");
               await recordCalibration('s1');
-              setPhase('cal_s1_review');
+              setPhase('s1_review');
+              speakInstruction("Speaker one calibration complete.");
             }}>Re-record Speaker 1</button>
           </div>
         </>
       )}
+
+      <div className="controls" style={{ marginTop: 12 }}>
+        <button className="mic-button stop" onClick={stopListening}>Cancel</button>
+      </div>
     </div>
   );
 
-  const PhaseCalibrationS2 = () => (
-    <div className="cal-block">
+  const CalibrationS2 = () => (
+    <div className="cal-panel">
       <h3>Calibration — Speaker 2</h3>
-      <p>{PROMPT_PHRASE}</p>
+      <p style={{ opacity: 0.85 }}>{PROMPT_PHRASE}</p>
       <div className="controls">
         <button onClick={async () => {
-          setPhase('cal_s2_recording');
+          setPhase('s2_record');
           speakInstruction("Recording speaker two for four seconds. Please read the phrase now.");
           await recordCalibration('s2');
-          setPhase('cal_s2_review');
+          setPhase('s2_review');
+          speakInstruction("Speaker two calibration complete.");
         }}>Start Speaker 2 Recording</button>
       </div>
-      {phase === 'cal_s2_review' && s2Preview && (
+
+      {phase === 's2_review' && s2Preview && (
         <>
-          <VoicePrintCard label="Speaker 2 voiceprint" mfcc={s2Preview.mfcc} />
+          <div style={{ marginTop: 10 }}>
+            <VoicePrintCard label="Speaker 2 voiceprint" mfcc={s2Preview.mfcc} />
+          </div>
+
+          {/* Similarity warning if prints are near-identical */}
+          {printsLookTooSimilar() && (
+            <div style={{ marginTop: 8, color: '#f59e0b' }}>
+              ⚠️ The two voiceprints look very similar. Try re-recording each speaker closer to the mic and at normal volume.
+            </div>
+          )}
+
           <div className="controls" style={{ marginTop: 10 }}>
             <button onClick={startLive}>Finish Calibration → Start Conversation</button>
             <button onClick={async () => {
-              setPhase('cal_s2_recording');
+              setPhase('s2_record');
+              speakInstruction("Re-recording speaker two.");
               await recordCalibration('s2');
-              setPhase('cal_s2_review');
+              setPhase('s2_review');
+              speakInstruction("Speaker two calibration complete.");
             }}>Re-record Speaker 2</button>
           </div>
         </>
       )}
+
+      <div className="controls" style={{ marginTop: 12 }}>
+        <button className="mic-button stop" onClick={stopListening}>Cancel</button>
+      </div>
     </div>
   );
 
-  const wAClass  = _activeSpeaker === 's1' ? 'wave active' : 'wave';
-  const wBClass  = _activeSpeaker === 's2' ? 'wave active' : 'wave';
+  const wAClass   = _activeSpeaker === 's1' ? 'wave active' : 'wave';
+  const wBClass   = _activeSpeaker === 's2' ? 'wave active' : 'wave';
   const wBotClass = _activeSpeaker === 'bot' ? 'wave active' : 'wave';
 
   return (
-    <div className="chat-input-wrapper">
-      {/* Top area: either guided calibration, or the 3 visualisers */}
-      {phase === 'idle' ? (
+    <div className="chat-input-wrapper" style={{ position: 'relative' }}>
+      <DebugHUD
+        visible={showDebug}
+        rms={debugRef.current.rms}
+        noise={debugRef.current.noise}
+        s1={debugRef.current.s1}
+        s2={debugRef.current.s2}
+        candidate={debugRef.current.candidate}
+        active={_activeSpeaker}
+      />
+
+      {/* Top: guided calibration or live 3-wave visualisers */}
+      {phase === 'idle' && (
         <div className="waveform-container" style={{ placeItems: 'center' }}>
-          <button className="mic-button" onClick={startListening}>
-            🎤 Start Listening
+          <button className="mic-button" onClick={startListeningFlow}>🎤 Start Listening</button>
+          <button style={{ marginLeft: 8 }} onClick={() => setShowDebug(v => !v)}>
+            {showDebug ? 'Hide Debug' : 'Show Debug'}
           </button>
         </div>
-      ) : phase.startsWith('cal_s1') ? (
+      )}
+
+      {phase.startsWith('s1') && (
         <div className="cal-panel">
-          <PhaseCalibrationS1 />
-          <div className="controls" style={{ marginTop: 12 }}>
-            <button className="mic-button stop" onClick={stopListening}>Cancel</button>
+          <CalibrationS1 />
+          <div className="controls" style={{ marginTop: 8 }}>
+            <button onClick={() => setShowDebug(v => !v)}>{showDebug ? 'Hide Debug' : 'Show Debug'}</button>
           </div>
         </div>
-      ) : phase.startsWith('cal_s2') ? (
+      )}
+
+      {phase.startsWith('s2') && (
         <div className="cal-panel">
-          <PhaseCalibrationS2 />
-          <div className="controls" style={{ marginTop: 12 }}>
-            <button className="mic-button stop" onClick={stopListening}>Cancel</button>
+          <CalibrationS2 />
+          <div className="controls" style={{ marginTop: 8 }}>
+            <button onClick={() => setShowDebug(v => !v)}>{showDebug ? 'Hide Debug' : 'Show Debug'}</button>
           </div>
         </div>
-      ) : (
+      )}
+
+      {phase === 'live' && (
         <div className="waveform-container">
           <div className={wAClass}>
             <Waveform analyser={analysers.analyserA} color="#5e60ce" />
@@ -372,11 +448,12 @@ export default function ChatInput({ onSend }) {
           </div>
           <div className="controls">
             <button className="mic-button stop" onClick={stopListening}>⏹ Stop Listening</button>
+            <button onClick={() => setShowDebug(v => !v)}>{showDebug ? 'Hide Debug' : 'Show Debug'}</button>
           </div>
         </div>
       )}
 
-      {/* Bottom: input + interim preview (works in live mode and also manual typing) */}
+      {/* Bottom: input + interim preview */}
       <form className="chat-input" onSubmit={handleSubmit}>
         <input
           type="text"
