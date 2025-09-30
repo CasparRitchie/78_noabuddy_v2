@@ -1,41 +1,45 @@
 # ===== Deploy helpers =====
-FRONTEND := frontend
-BACKEND  := backend
-STATIC   := $(BACKEND)/static
 
-BRANCH   ?= $(shell git rev-parse --abbrev-ref HEAD)
-COMMIT   ?= chore: deploy
+FRONTEND_DIR := frontend
+BACKEND_DIR  := backend
+STATIC_DIR   := $(BACKEND_DIR)/static
+DIST_DIR     := $(FRONTEND_DIR)/dist
 
-.PHONY: install-frontend build-frontend clean-static copy-frontend deploy push
+BRANCH ?= $(shell git rev-parse --abbrev-ref HEAD)
+COMMIT ?= chore: deploy
+
+.PHONY: install-frontend build-frontend clean-static copy-frontend deploy push \
+        _ensure-dist _commit-and-push
 
 install-frontend:
-	cd $(FRONTEND) && npm ci
+	cd $(FRONTEND_DIR) && npm ci
 
 # Build using a clean install to avoid local drift
 build-frontend: install-frontend
-	cd $(FRONTEND) && npm run build
+	cd $(FRONTEND_DIR) && npm run build
 
 # Wipe ONLY the static folder (it should contain frontend assets only)
 clean-static:
-	@mkdir -p $(STATIC)
-	rm -rf $(STATIC)/*
-	@mkdir -p $(STATIC)
+	@mkdir -p $(STATIC_DIR)
+	rm -rf $(STATIC_DIR)/*
+	@mkdir -p $(STATIC_DIR)
 
 # Copy dist -> backend/static
-copy-frontend:
-	@test -d $(FRONTEND)/dist || (echo "Run 'make build-frontend' first." && exit 1)
-	@mkdir -p $(STATIC)
-	cp -R $(FRONTEND)/dist/* $(STATIC)/
-	@echo "Copied frontend build into $(STATIC)"
+copy-frontend: _ensure-dist
+	@mkdir -p $(STATIC_DIR)
+	cp -R $(DIST_DIR)/* $(STATIC_DIR)/
+	@echo "Copied frontend build into $(STATIC_DIR)"
 
-# One-liner: build + copy + push (Heroku GitHub auto-deploy will pick this up)
 deploy: build-frontend clean-static copy-frontend
-	@git add -A
-	@git commit -m "$(COMMIT)" || echo "Nothing to commit."
-	git push origin $(BRANCH)
+	@$(MAKE) _commit-and-push
 
-# Just commit & push current changes
 push:
+	@$(MAKE) _commit-and-push
+
+_ensure-dist:
+	@test -d $(DIST_DIR) || (echo "Run 'make build-frontend' first." && exit 1)
+
+_commit-and-push:
 	@git add -A
 	@git commit -m "$(COMMIT)" || echo "Nothing to commit."
 	git push origin $(BRANCH)
