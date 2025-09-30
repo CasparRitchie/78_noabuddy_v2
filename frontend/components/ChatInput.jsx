@@ -349,7 +349,7 @@ export default function ChatInput({ onSend }) {
       <div className="controls">
         <button onClick={async () => {
           setPhase('s2_record');
-          speakInstruction("Go, speaker two.");
+          speakInstruction("Speak now");
           await recordCalibration('s2');
           setPhase('s2_review');
           speakInstruction("Speaker two calibration complete.");
