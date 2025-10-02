@@ -1,101 +1,151 @@
 // frontend/src/App.jsx
-import React, { useState, useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import ChatInput from "../components/ChatInput";
-import Onboarding from "../components/Onboarding";
-import Navbar from "../components/Navbar";
+import Navbar from "../components/Navbar"; // keep if you already have it
+import { computeFlags } from "./utils/coach";
 import "./App.css";
 
-function App() {
-  const [showOnboarding, setShowOnboarding] = useState(true);
+export default function App() {
+  // messages: { sender: 's1'|'s2'|'bot', text: string, ts: number }
   const [messages, setMessages] = useState([]);
-  const [audioStreams, setAudioStreams] = useState(null);
-  const audioCtxRef = useRef(null);
+  const [coachingEnabled, setCoachingEnabled] = useState(true);
+  const [isThinking, setIsThinking] = useState(false);
 
-  useEffect(() => {
-    if (localStorage.getItem("hideOnboarding") === "true") {
-      setShowOnboarding(false);
-    }
-  }, []);
+  const lastCoachAtRef = useRef(0);
+  const MIN_COACH_GAP = 30; // seconds between coach messages
+  const PAUSE_BEFORE_COACH = 1.0; // seconds of lull before coach speaks
+  const speakerLabels = { s1: "Speaker 1", s2: "Speaker 2" };
 
-  const startMic = async () => {
-    if (audioStreams) return;
+  // Optional: speak out bot messages
+  const speakBot = (text) => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const AudioContext = window.AudioContext || window.webkitAudioContext;
-      const audioCtx = new AudioContext();
-      audioCtxRef.current = audioCtx;
-
-      const analyserA = audioCtx.createAnalyser();
-      analyserA.fftSize = 256;
-      const source = audioCtx.createMediaStreamSource(stream);
-      source.connect(analyserA);
-
-      // placeholder for B + Bot later:
-      setAudioStreams({ analyserA, analyserB: null, analyserBot: null });
-    } catch (err) {
-      console.error("Microphone access error:", err);
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = "en-GB";
+      u.rate = 1.0;
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(u);
+    } catch {
+      // ignore
     }
   };
 
-  // 🔧 CHANGED: accept structured messages { text, speaker } from ChatInput
-  const handleSend = (msg) => {
-    // Backward compatibility: if a string comes in, wrap it
-    const payload = typeof msg === "string" ? { text: msg, speaker: "s1" } : msg;
+  // Called by ChatInput when an STT chunk finalizes
+  const handleSend = ({ text, speaker }) => {
+    const msg = { sender: speaker, text, ts: Date.now() / 1000 };
+    setMessages((prev) => {
+      const next = [...prev, msg];
+      // fire-and-forget; we don't await here to keep UI snappy
+      void maybeCoach(next);
+      return next;
+    });
+  };
 
-    // Map speaker tag to a display role (for CSS / labels)
-    const role =
-      payload.speaker === "s1" ? "speaker1" :
-      payload.speaker === "s2" ? "speaker2" :
-      payload.speaker === "bot" ? "bot" : "unknown";
+  // Decide whether to call the coach and possibly add a bot message
+  const maybeCoach = async (allMsgs) => {
+    if (!coachingEnabled) return;
 
-    // Append the user/speaker message
-    setMessages((prev) => [
-      ...prev,
-      { role, text: payload.text }
-      // If you still want a bot placeholder, uncomment below:
-      // , { role: "bot", text: "🤖 (bot reply placeholder)" }
+    const now = Date.now() / 1000;
+    if (now - lastCoachAtRef.current < MIN_COACH_GAP) return;
+
+    const last = allMsgs[allMsgs.length - 1];
+    if (!last) return;
+    const lull = now - last.ts;
+    if (lull < PAUSE_BEFORE_COACH) return;
+
+    // Build "turns" (ignore prior bot messages)
+    const turns = allMsgs
+      .filter((m) => m.sender === "s1" || m.sender === "s2")
+      .slice(-20)
+      .map((m) => ({ speaker: m.sender, text: m.text, ts: m.ts }));
+
+    if (turns.length < 2) return;
+
+    const flags = computeFlags(turns);
+    // Be conservative for v1: require 2+ signals
+    if (flags.length < 2) return;
+
+    try {
+      setIsThinking(true);
+      const res = await fetch("/api/coach", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ turns, flags, speaker_labels: speakerLabels }),
+      });
+      const data = await res.json();
+
+      if (data?.should_intervene && data?.message) {
+        lastCoachAtRef.current = now;
+        setMessages((prev) => [
+          ...prev,
+          { sender: "bot", text: data.message, ts: Date.now() / 1000 },
+        ]);
+        speakBot(data.message);
+      }
+    } catch (e) {
+      console.warn("coach error", e);
+    } finally {
+      setIsThinking(false);
+    }
+  };
+
+  // Optional: show a very light intro message on mount
+  useEffect(() => {
+    setMessages([
+      {
+        sender: "bot",
+        text:
+          "Hi! I’ll listen quietly and occasionally offer a short nudge when it could help you both feel heard.",
+        ts: Date.now() / 1000,
+      },
     ]);
-  };
-
-  const handleFinishOnboarding = () => {
-    setShowOnboarding(false);
-    localStorage.setItem("hideOnboarding", "true");
-  };
-
-  useEffect(() => () => {
-    if (audioCtxRef.current) audioCtxRef.current.close();
   }, []);
-
-  // Helper to label bubbles nicely
-  const speakerLabel = (role) =>
-    role === "speaker1" ? "Speaker 1" :
-    role === "speaker2" ? "Speaker 2" :
-    role === "bot" ? "NoaBuddy" : "Unknown";
-
-  if (showOnboarding) {
-    return <Onboarding onFinish={handleFinishOnboarding} />;
-  }
 
   return (
     <div className="app">
+      {/* Top bar */}
       <Navbar />
 
-      <div style={{ textAlign: "center", marginTop: "1rem" }}>
-        <button onClick={startMic}>🎤 Start Mic</button>
+      {/* Coach controls */}
+      <div style={{ display: "flex", justifyContent: "center", gap: 12, margin: "10px 0" }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <input
+            type="checkbox"
+            checked={coachingEnabled}
+            onChange={(e) => setCoachingEnabled(e.target.checked)}
+          />
+          Coaching enabled
+        </label>
+        {isThinking && (
+          <span aria-live="polite" style={{ opacity: 0.7 }}>
+            🧠 thinking…
+          </span>
+        )}
       </div>
 
+      {/* Messages */}
       <div className="chat-window">
-        {messages.map((m, i) => (
-          <div key={i} className={`message ${m.role}`}>
-            <strong>{speakerLabel(m.role)}:</strong> {m.text}
-          </div>
-        ))}
+        {messages.map((m, i) => {
+          const who =
+            m.sender === "s1"
+              ? speakerLabels.s1
+              : m.sender === "s2"
+              ? speakerLabels.s2
+              : "NoaBuddy";
+        return (
+            <div key={i} className={`message ${m.sender}`}>
+              <div className="meta" style={{ opacity: 0.7, fontSize: 12, marginBottom: 2 }}>
+                {who}
+              </div>
+              <div>
+                {m.sender === "bot" ? <>🧠 {m.text}</> : m.text}
+              </div>
+            </div>
+          );
+        })}
       </div>
 
-      {/* ChatInput now emits { text, speaker } for final chunks */}
-      <ChatInput onSend={handleSend} audioStreams={audioStreams} />
+      {/* Mic + diarisation + STT input */}
+      <ChatInput onSend={handleSend} />
     </div>
   );
 }
-
-export default App;
