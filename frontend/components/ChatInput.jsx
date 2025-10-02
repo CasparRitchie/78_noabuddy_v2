@@ -1,4 +1,4 @@
- // frontend/components/ChatInput.jsx
+// frontend/components/ChatInput.jsx
 import React, { useState, useRef } from 'react';
 import Meyda from 'meyda';
 import { cosineSim, meanVectors } from '../src/utils/audioMath';
@@ -115,6 +115,21 @@ export default function ChatInput({ onSend }) {
       window.speechSynthesis.speak(u);
     } catch { /* ignore */ }
   };
+
+  // Speak and wait until TTS finishes
+  const speakAndWait = (text) =>
+    new Promise((resolve) => {
+      try {
+        const u = new SpeechSynthesisUtterance(text);
+        u.rate = 1.0; u.pitch = 1.0; u.lang = 'en-GB';
+        u.onend = () => resolve();
+        u.onerror = () => resolve();
+        window.speechSynthesis.cancel();
+        window.speechSynthesis.speak(u);
+      } catch {
+        resolve();
+      }
+    });
 
   const ensureAudio = async () => {
     if (!audioCtxRef.current) {
@@ -341,10 +356,9 @@ export default function ChatInput({ onSend }) {
         <button
           disabled={isRecording}
           onClick={async () => {
-            // clear any previous preview
             setS1Preview(null);
             setPhase('s1_record');
-            speakInstruction("Recording speaker one for four seconds. Please read the phrase now.");
+            await speakAndWait("Recording speaker one for four seconds. Please read the phrase now.");
             const mfcc = await recordCalibration('s1');
             if (!mfcc) {
               setPhase('s1_prompt');
@@ -372,7 +386,7 @@ export default function ChatInput({ onSend }) {
               disabled={isRecording}
               onClick={async () => {
                 setPhase('s1_record');
-                speakInstruction("Re-recording speaker one.");
+                await speakAndWait("Re-recording speaker one. Please read the phrase now.");
                 const mfcc = await recordCalibration('s1');
                 if (!mfcc) { setPhase('s1_prompt'); alert("Please try again for speaker one."); return; }
                 setPhase('s1_review');
@@ -400,7 +414,7 @@ export default function ChatInput({ onSend }) {
           onClick={async () => {
             setS2Preview(null);
             setPhase('s2_record');
-            speakInstruction("Recording speaker two for four seconds. Please read the phrase now.");
+            await speakAndWait("Recording speaker two for four seconds. Please read the phrase now.");
             const mfcc = await recordCalibration('s2');
             if (!mfcc) {
               setPhase('s2_prompt');
@@ -430,7 +444,7 @@ export default function ChatInput({ onSend }) {
               disabled={isRecording}
               onClick={async () => {
                 setPhase('s2_record');
-                speakInstruction("Re-recording speaker two.");
+                await speakAndWait("Re-recording speaker two. Please read the phrase now.");
                 const mfcc = await recordCalibration('s2');
                 if (!mfcc) { setPhase('s2_prompt'); alert("Please try again for speaker two."); return; }
                 setPhase('s2_review');
