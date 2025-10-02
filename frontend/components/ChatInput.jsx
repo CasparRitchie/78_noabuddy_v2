@@ -14,6 +14,7 @@ const NOISE_DECAY = 0.98;       // noise floor EWMA decay (live)
 const NOISE_ALPHA = 0.02;       // noise floor EWMA update (live)
 const COSINE_MARGIN = 0.08;     // top - second must exceed this (live)
 const SMOOTH_WINDOW = 8;        // majority vote window (live)
+const FRAME_SIZE = 1024;        // worklet frame size
 
 /** Inline visualiser for a voiceprint (MFCC mean bars) */
 function VoicePrintCard({ label, mfcc = [] }) {
@@ -90,11 +91,12 @@ export default function ChatInput({ onSend }) {
   const s1PrintRef  = useRef(null);
   const s2PrintRef  = useRef(null);
 
-  // Audio + analyzers
+  // Audio + nodes
   const audioCtxRef      = useRef();
   const recognitionRef   = useRef(null);
   const micStreamRef     = useRef(null);
-  const meydaAnalyzerRef = useRef(null);
+  const meydaWorkletRef  = useRef(null); // AudioWorkletNode
+  const workletReadyRef  = useRef(false);
 
   // ensure graph pulls (silent gain → destination)
   const silentSinkRef    = useRef(null);
@@ -163,23 +165,48 @@ export default function ChatInput({ onSend }) {
       });
     }
     const ctx = audioCtxRef.current;
-    const source = ctx.createMediaStreamSource(micStreamRef.current);
 
-    // Ensure the graph is "pulling": connect source → silent gain → destination
-    if (!silentSinkRef.current) {
-      const g = ctx.createGain();
-      g.gain.value = 0.0;
-      source.connect(g);
-      g.connect(ctx.destination);
-      silentSinkRef.current = g;
+    // Load worklet module once
+    if (!workletReadyRef.current) {
+      const modUrl = new URL('../src/worklets/capture-processor.js', import.meta.url);
+      await ctx.audioWorklet.addModule(modUrl);
+      workletReadyRef.current = true;
     }
+
+    // Mic → Worklet (captures frames)
+    const source = ctx.createMediaStreamSource(micStreamRef.current);
+    if (!meydaWorkletRef.current) {
+      meydaWorkletRef.current = new AudioWorkletNode(ctx, 'capture-processor', {
+        processorOptions: { frameSize: FRAME_SIZE, channel: 0 }
+      });
+
+      // Keep the graph "pulling": worklet → silent gain → destination
+      if (!silentSinkRef.current) {
+        const g = ctx.createGain();
+        g.gain.value = 0.0;
+        meydaWorkletRef.current.connect(g);
+        g.connect(ctx.destination);
+        silentSinkRef.current = g;
+      }
+    }
+
+    // Connect source to worklet (idempotent connect is safe in Chrome)
+    try { source.connect(meydaWorkletRef.current); } catch {}
 
     return { ctx, source };
   };
 
-  // --- One-shot calibration recording (~4s, MFCC mean) ---
+  // --- Frame feature extraction using Meyda.extract (main thread) ---
+  const extractFeatures = (frame, sampleRate) => {
+    // Meyda expects a JS array or Float32Array
+    const signal = frame; // Float32Array
+    const features = Meyda.extract(['mfcc', 'rms'], signal, { sampleRate, bufferSize: frame.length });
+    return features || {};
+  };
+
+  // --- One-shot calibration recording (~4s, MFCC mean) using worklet frames ---
   const recordCalibration = async (who /* 's1' | 's2' */) => {
-    const { ctx, source } = await ensureAudio();
+    const { ctx } = await ensureAudio();
     const frames = [];
     setIsRecording(true);
     setRecordCountdown(CALIB_MS / 1000);
@@ -191,21 +218,21 @@ export default function ChatInput({ onSend }) {
       setRecordCountdown(Math.max(0, remaining));
     }, 1000);
 
-    const calibAnalyzer = Meyda.createMeydaAnalyzer({
-      audioContext: ctx,
-      source,
-      bufferSize: 1024,
-      featureExtractors: ['mfcc', 'rms'],
-      callback: ({ mfcc, rms }) => {
-        if (mfcc && mfcc.length && (rms ?? 0) > CALIB_MIN_RMS) {
-          frames.push(mfcc.slice());
-        }
-      },
-    });
+    // Collect frames for CALIB_MS
+    const onFrame = (ev) => {
+      const frame = ev.data;
+      const { mfcc, rms } = extractFeatures(frame, ctx.sampleRate);
+      if (mfcc && mfcc.length && (rms ?? 0) > CALIB_MIN_RMS) {
+        frames.push(mfcc.slice());
+      }
+    };
 
-    calibAnalyzer.start();
+    meydaWorkletRef.current.port.addEventListener('message', onFrame);
+    meydaWorkletRef.current.port.start();
+
     await new Promise(res => setTimeout(res, CALIB_MS));
-    calibAnalyzer.stop();
+
+    meydaWorkletRef.current.port.removeEventListener('message', onFrame);
     clearInterval(timer);
     setIsRecording(false);
 
@@ -241,53 +268,50 @@ export default function ChatInput({ onSend }) {
     analyserBot.fftSize = 256;
     setAnalysers({ analyserA, analyserB, analyserBot });
 
-    // Meyda for frame-by-frame speaker ID
-    if (meydaAnalyzerRef.current) { try { meydaAnalyzerRef.current.stop(); } catch {} meydaAnalyzerRef.current = null; }
-    meydaAnalyzerRef.current = Meyda.createMeydaAnalyzer({
-      audioContext: ctx,
-      source,
-      bufferSize: 1024,
-      featureExtractors: ['mfcc', 'rms'],
-      callback: ({ mfcc, rms }) => {
-        if (!mfcc || !mfcc.length) return;
+    // Frame-by-frame features from the worklet
+    const onFrame = (ev) => {
+      const frame = ev.data;
+      const { mfcc, rms } = extractFeatures(frame, ctx.sampleRate);
+      if (!mfcc || !mfcc.length) return;
 
-        // Adaptive VAD
-        if (rms < noiseFloorRef.current * 1.5) {
-          noiseFloorRef.current = NOISE_DECAY * noiseFloorRef.current + NOISE_ALPHA * rms;
-        }
-        const vadThreshold = Math.max(VAD_MIN, noiseFloorRef.current * VAD_MULT);
-        if (rms < vadThreshold) { setActiveSpeaker(null); debugRef.current = { ...debugRef.current, rms, noise: noiseFloorRef.current, candidate: null }; return; }
+      // Adaptive VAD
+      if (rms < noiseFloorRef.current * 1.5) {
+        noiseFloorRef.current = NOISE_DECAY * noiseFloorRef.current + NOISE_ALPHA * rms;
+      }
+      const vadThreshold = Math.max(VAD_MIN, noiseFloorRef.current * VAD_MULT);
+      if (rms < vadThreshold) { setActiveSpeaker(null); debugRef.current = { ...debugRef.current, rms, noise: noiseFloorRef.current, candidate: null }; return; }
 
-        // Score to prints
-        let s1 = null, s2 = null;
-        if (s1PrintRef.current) s1 = cosineSim(mfcc, s1PrintRef.current);
-        if (s2PrintRef.current) s2 = cosineSim(mfcc, s2PrintRef.current);
-        if (s1 === null && s2 === null) return;
+      // Score to prints
+      let s1 = null, s2 = null;
+      if (s1PrintRef.current) s1 = cosineSim(mfcc, s1PrintRef.current);
+      if (s2PrintRef.current) s2 = cosineSim(mfcc, s2PrintRef.current);
+      if (s1 === null && s2 === null) return;
 
-        let candidate = null;
-        if (s1 !== null && s2 !== null) {
-          const top = Math.max(s1, s2);
-          const second = Math.min(s1, s2);
-          candidate = (top - second) > COSINE_MARGIN ? (s1 > s2 ? 's1' : 's2') : null;
-        } else {
-          candidate = s1 !== null ? 's1' : 's2';
-        }
+      let candidate = null;
+      if (s1 !== null && s2 !== null) {
+        const top = Math.max(s1, s2);
+        const second = Math.min(s1, s2);
+        candidate = (top - second) > COSINE_MARGIN ? (s1 > s2 ? 's1' : 's2') : null;
+      } else {
+        candidate = s1 !== null ? 's1' : 's2';
+      }
 
-        // Majority-vote smoothing
-        if (candidate) {
-          speakerWindowRef.current.push(candidate);
-          if (speakerWindowRef.current.length > SMOOTH_WINDOW) speakerWindowRef.current.shift();
-          const s1c = speakerWindowRef.current.filter(l => l === 's1').length;
-          const s2c = speakerWindowRef.current.filter(l => l === 's2').length;
-          setActiveSpeaker(s1c === s2c ? null : (s1c > s2c ? 's1' : 's2'));
-        } else {
-          setActiveSpeaker(null);
-        }
+      // Majority-vote smoothing
+      if (candidate) {
+        speakerWindowRef.current.push(candidate);
+        if (speakerWindowRef.current.length > SMOOTH_WINDOW) speakerWindowRef.current.shift();
+        const s1c = speakerWindowRef.current.filter(l => l === 's1').length;
+        const s2c = speakerWindowRef.current.filter(l => l === 's2').length;
+        setActiveSpeaker(s1c === s2c ? null : (s1c > s2c ? 's1' : 's2'));
+      } else {
+        setActiveSpeaker(null);
+      }
 
-        debugRef.current = { rms, noise: noiseFloorRef.current, s1, s2, candidate };
-      },
-    });
-    meydaAnalyzerRef.current.start();
+      debugRef.current = { rms, noise: noiseFloorRef.current, s1, s2, candidate };
+    };
+
+    meydaWorkletRef.current.port.addEventListener('message', onFrame);
+    meydaWorkletRef.current.port.start();
 
     // Web Speech API (STT)
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -321,6 +345,15 @@ export default function ChatInput({ onSend }) {
 
     setListening(true);
     setPhase('live');
+
+    // Clean-up hook when leaving live:
+    const stopFrames = () => {
+      try {
+        meydaWorkletRef.current.port.removeEventListener('message', onFrame);
+      } catch {}
+    };
+    // We rely on stopListening() to call this indirectly.
+    stopFrames._cleanup = true;
   };
 
   // ---- Public controls ----
@@ -347,9 +380,14 @@ export default function ChatInput({ onSend }) {
 
   const stopListening = () => {
     if (recognitionRef.current) { try { recognitionRef.current.stop(); } catch {} recognitionRef.current = null; }
-    if (meydaAnalyzerRef.current) { try { meydaAnalyzerRef.current.stop(); } catch {} meydaAnalyzerRef.current = null; }
-    if (micStreamRef.current) { try { micStreamRef.current.getTracks().forEach(t => t.stop()); } catch {} micStreamRef.current = null; }
+
+    // disconnect worklet & silent sink
+    if (meydaWorkletRef.current) {
+      try { meydaWorkletRef.current.disconnect(); } catch {}
+    }
     if (silentSinkRef.current) { try { silentSinkRef.current.disconnect(); } catch {} silentSinkRef.current = null; }
+
+    if (micStreamRef.current) { try { micStreamRef.current.getTracks().forEach(t => t.stop()); } catch {} micStreamRef.current = null; }
     setAnalysers({});
     setListening(false);
     setInterim('');
@@ -369,7 +407,7 @@ export default function ChatInput({ onSend }) {
     setInterim('');
   };
 
-  // ---- Phase UIs ----
+  // ---- Phase UIs (same as your latest streamlined version) ----
   const CalibrationS1 = () => (
     <div className="cal-panel">
       <h3>Calibration — Speaker 1</h3>
