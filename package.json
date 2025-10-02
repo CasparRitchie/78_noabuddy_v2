@@ -8,6 +8,7 @@
     "node": "20.x"
   },
   "dependencies": {
+    "httpx": "^3.0.1",
     "react-router-dom": "^7.6.3"
   }
 }
