@@ -131,6 +131,25 @@ export default function ChatInput({ onSend }) {
       }
     });
 
+  // Short beep cue before recording starts
+  const beepAndWait = async (ms = 400, freq = 880) => {
+    try {
+      const ctx = audioCtxRef.current || new (window.AudioContext || window.webkitAudioContext)();
+      if (!audioCtxRef.current) audioCtxRef.current = ctx;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.frequency.value = freq;
+      gain.gain.value = 0.04; // quiet beep
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      await new Promise(r => setTimeout(r, ms));
+      osc.stop();
+      osc.disconnect();
+      gain.disconnect();
+    } catch { /* ignore */ }
+  };
+
   const ensureAudio = async () => {
     if (!audioCtxRef.current) {
       audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
@@ -315,8 +334,11 @@ export default function ChatInput({ onSend }) {
       setS1Preview(null); setS2Preview(null);
       speakerWindowRef.current = [];
       setActiveSpeaker(null);
+
       setPhase('s1_prompt');
-      speakInstruction("Let's calibrate. Speaker one, when ready, please read the phrase on screen.");
+      await speakAndWait(
+        "We'll calibrate two voices. Speaker one: when you're ready, press Start four-second recording, then read the phrase on screen."
+      );
     } catch (err) {
       console.error('Microphone error:', err);
       alert('Microphone permission is required.');
@@ -358,7 +380,7 @@ export default function ChatInput({ onSend }) {
           onClick={async () => {
             setS1Preview(null);
             setPhase('s1_record');
-            await speakAndWait("Recording speaker one for four seconds. Please read the phrase now.");
+            await beepAndWait(); // short cue, then record
             const mfcc = await recordCalibration('s1');
             if (!mfcc) {
               setPhase('s1_prompt');
@@ -368,7 +390,7 @@ export default function ChatInput({ onSend }) {
             setPhase('s1_review');
             speakInstruction("Speaker one calibration complete.");
           }}>
-          {isRecording && phase === 's1_record' ? `Recording… ${recordCountdown}s` : 'Start Speaker 1 Recording'}
+          {isRecording && phase === 's1_record' ? `Recording… ${recordCountdown}s` : 'Start 4-second recording'}
         </button>
       </div>
 
@@ -378,15 +400,17 @@ export default function ChatInput({ onSend }) {
             <VoicePrintCard label="Speaker 1 voiceprint" mfcc={s1Preview.mfcc} />
           </div>
           <div className="controls" style={{ marginTop: 10 }}>
-            <button onClick={() => {
+            <button onClick={async () => {
               setPhase('s2_prompt');
-              speakInstruction("Now speaker two, please read the phrase on screen.");
+              await speakAndWait(
+                "Speaker two: when you're ready, press Start four-second recording, then read the phrase on screen."
+              );
             }}>Looks good → Next (Speaker 2)</button>
             <button
               disabled={isRecording}
               onClick={async () => {
                 setPhase('s1_record');
-                await speakAndWait("Re-recording speaker one. Please read the phrase now.");
+                await beepAndWait();
                 const mfcc = await recordCalibration('s1');
                 if (!mfcc) { setPhase('s1_prompt'); alert("Please try again for speaker one."); return; }
                 setPhase('s1_review');
@@ -414,7 +438,7 @@ export default function ChatInput({ onSend }) {
           onClick={async () => {
             setS2Preview(null);
             setPhase('s2_record');
-            await speakAndWait("Recording speaker two for four seconds. Please read the phrase now.");
+            await beepAndWait();
             const mfcc = await recordCalibration('s2');
             if (!mfcc) {
               setPhase('s2_prompt');
@@ -424,7 +448,7 @@ export default function ChatInput({ onSend }) {
             setPhase('s2_review');
             speakInstruction("Speaker two calibration complete.");
           }}>
-          {isRecording && phase === 's2_record' ? `Recording… ${recordCountdown}s` : 'Start Speaker 2 Recording'}
+          {isRecording && phase === 's2_record' ? `Recording… ${recordCountdown}s` : 'Start 4-second recording'}
         </button>
       </div>
 
@@ -444,7 +468,7 @@ export default function ChatInput({ onSend }) {
               disabled={isRecording}
               onClick={async () => {
                 setPhase('s2_record');
-                await speakAndWait("Re-recording speaker two. Please read the phrase now.");
+                await beepAndWait();
                 const mfcc = await recordCalibration('s2');
                 if (!mfcc) { setPhase('s2_prompt'); alert("Please try again for speaker two."); return; }
                 setPhase('s2_review');
