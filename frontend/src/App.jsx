@@ -62,7 +62,7 @@ export default function App() {
 
     const flags = computeFlags(turns);
     // Be conservative for v1: require 2+ signals
-    if (flags.length < 2) return;
+    if (flags.length < 1) return;
 
     try {
       setIsThinking(true);
